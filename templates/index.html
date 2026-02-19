@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Captioner - AI Scene Description</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 800px;
+            width: 100%;
+            padding: 40px;
+        }
+        
+        header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+        
+        h1 {
+            font-size: 2.5em;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .subtitle {
+            color: #666;
+            font-size: 1.1em;
+        }
+        
+        .upload-section {
+            margin: 30px 0;
+            padding: 30px;
+            border: 2px dashed #667eea;
+            border-radius: 8px;
+            text-align: center;
+            background: #f8f9ff;
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        
+        .upload-section:hover {
+            border-color: #764ba2;
+            background: #f0f1ff;
+        }
+        
+        .upload-section.dragover {
+            border-color: #764ba2;
+            background: #f0f1ff;
+            transform: scale(1.02);
+        }
+        
+        #imageInput {
+            display: none;
+        }
+        
+        .upload-label {
+            display: block;
+            cursor: pointer;
+            padding: 20px;
+        }
+        
+        .upload-icon {
+            font-size: 3em;
+            margin-bottom: 10px;
+        }
+        
+        .upload-text {
+            color: #667eea;
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+        
+        .upload-hint {
+            color: #999;
+            font-size: 0.9em;
+        }
+        
+        #imagePreview {
+            max-width: 100%;
+            max-height: 400px;
+            margin: 20px 0;
+            border-radius: 8px;
+            display: none;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin: 20px 0;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        
+        button {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 6px;
+            font-size: 1em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #333;
+        }
+        
+        .btn-secondary:hover {
+            background: #e0e0e0;
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+        
+        .spinner {
+            border: 4px solid #f0f0f0;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .loading-text {
+            color: #667eea;
+            font-weight: 600;
+        }
+        
+        .caption-box {
+            display: none;
+            background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
+            border-left: 4px solid #667eea;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        
+        .caption-box.success {
+            display: block;
+            animation: slideIn 0.3s ease;
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .caption-label {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 8px;
+        }
+        
+        .caption-text {
+            color: #555;
+            font-size: 1.1em;
+            line-height: 1.6;
+        }
+        
+        .error-box {
+            display: none;
+            background: #fee;
+            border-left: 4px solid #f44;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
+            color: #d00;
+            animation: slideIn 0.3s ease;
+        }
+        
+        .error-box.show {
+            display: block;
+        }
+        
+        .info-box {
+            background: #f0f8ff;
+            border-left: 4px solid #0078d4;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+            color: #0078d4;
+            font-size: 0.9em;
+        }
+        
+        footer {
+            text-align: center;
+            margin-top: 40px;
+            color: #999;
+            font-size: 0.9em;
+        }
+        
+        .filename {
+            color: #999;
+            font-size: 0.9em;
+            margin-top: 10px;
+        }
+        
+        @media (max-width: 600px) {
+            .container {
+                padding: 20px;
+            }
+            
+            h1 {
+                font-size: 1.8em;
+            }
+            
+            .button-group {
+                flex-direction: column;
+            }
+            
+            button {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🖼️ Image Captioner</h1>
+            <p class="subtitle">AI-powered scene description for accessibility</p>
+        </header>
+        
+        <div class="upload-section" id="uploadSection">
+            <label class="upload-label" for="imageInput">
+                <div class="upload-icon">📤</div>
+                <div class="upload-text">Click to select an image or drag and drop</div>
+                <div class="upload-hint">Supports JPG, PNG, GIF, WebP (max 50MB)</div>
+            </label>
+            <input type="file" id="imageInput" accept="image/*">
+        </div>
+        
+        <img id="imagePreview" alt="Preview">
+        <div class="filename" id="filename"></div>
+        
+        <div class="button-group">
+            <button class="btn-primary" id="captionBtn" onclick="captionImage()" disabled>
+                Generate Caption
+            </button>
+            <button class="btn-secondary" onclick="clearImage()">
+                Clear
+            </button>
+        </div>
+        
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <div class="loading-text">Generating caption...</div>
+            <div style="color: #999; font-size: 0.9em; margin-top: 10px;">
+                This may take 10-30 seconds on first load
+            </div>
+        </div>
+        
+        <div class="error-box" id="errorBox">
+            <strong>Error:</strong>
+            <div id="errorText"></div>
+        </div>
+        
+        <div class="caption-box" id="captionBox">
+            <div class="caption-label">📝 Generated Caption:</div>
+            <div class="caption-text" id="captionText"></div>
+        </div>
+        
+        <div class="info-box">
+            <strong>ℹ️ About:</strong> This app uses BLIP (Bootstrapping Language-Image Pre-training) 
+            to generate natural language descriptions of images. It can help create accessible content
+            and improve digital accessibility.
+        </div>
+        
+        <footer>
+            <p>Powered by BLIP-base | Optimized for accessibility</p>
+        </footer>
+    </div>
+    
+    <script>
+        const imageInput = document.getElementById('imageInput');
+        const uploadSection = document.getElementById('uploadSection');
+        const imagePreview = document.getElementById('imagePreview');
+        const captionBtn = document.getElementById('captionBtn');
+        const loading = document.getElementById('loading');
+        const errorBox = document.getElementById('errorBox');
+        const errorText = document.getElementById('errorText');
+        const captionBox = document.getElementById('captionBox');
+        const captionText = document.getElementById('captionText');
+        const filenameDiv = document.getElementById('filename');
+        
+        // Handle file input
+        imageInput.addEventListener('change', function(e) {
+            handleImageSelect(e.target.files[0]);
+        });
+        
+        // Handle drag and drop
+        uploadSection.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            uploadSection.classList.add('dragover');
+        });
+        
+        uploadSection.addEventListener('dragleave', () => {
+            uploadSection.classList.remove('dragover');
+        });
+        
+        uploadSection.addEventListener('drop', (e) => {
+            e.preventDefault();
+            uploadSection.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files[0]) {
+                handleImageSelect(files[0]);
+                imageInput.files = files;
+            }
+        });
+        
+        function handleImageSelect(file) {
+            if (!file) return;
+            
+            if (!file.type.startsWith('image/')) {
+                showError('Please select a valid image file');
+                return;
+            }
+            
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                imagePreview.src = event.target.result;
+                imagePreview.style.display = 'block';
+                filenameDiv.textContent = `File: ${file.name}`;
+                captionBtn.disabled = false;
+                errorBox.classList.remove('show');
+                captionBox.classList.remove('success');
+            };
+            reader.readAsDataURL(file);
+        }
+        
+        async function captionImage() {
+            const file = imageInput.files[0];
+            if (!file) {
+                showError('Please select an image');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('image', file);
+            
+            loading.style.display = 'block';
+            errorBox.classList.remove('show');
+            captionBox.classList.remove('success');
+            captionBtn.disabled = true;
+            
+            try {
+                const response = await fetch('/caption', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    captionText.textContent = data.caption;
+                    captionBox.classList.add('success');
+                } else {
+                    showError(data.error || 'Failed to generate caption');
+                }
+            } catch (error) {
+                showError('Network error: ' + error.message);
+            }
+            
+            loading.style.display = 'none';
+            captionBtn.disabled = false;
+        }
+        
+        function clearImage() {
+            imageInput.value = '';
+            imagePreview.style.display = 'none';
+            filenameDiv.textContent = '';
+            captionBtn.disabled = true;
+            loading.style.display = 'none';
+            errorBox.classList.remove('show');
+            captionBox.classList.remove('success');
+        }
+        
+        function showError(message) {
+            errorText.textContent = message;
+            errorBox.classList.add('show');
+        }
+    </script>
+</body>
+</html>
