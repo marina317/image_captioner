@@ -2,15 +2,13 @@
 Flask Application for Image Captioning
 ========================================
 Ready to deploy to Azure
-
-Copy this file to your local project folder as: app.py
+Optimized with lazy model loading to avoid startup timeout
 """
 
 from flask import Flask, render_template, request, jsonify
 from transformers import BlipProcessor, BlipForConditionalGeneration
 import torch
 from PIL import Image
-import io
 import os
 
 app = Flask(__name__)
@@ -18,26 +16,37 @@ app = Flask(__name__)
 # Configuration
 MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # 50MB max upload
 
-# Initialize model once on startup
-print("Initializing model...")
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-print(f"Using device: {device}")
+# Global variables for lazy loading
+processor = None
+model = None
+device = None
+model_loaded = False
 
-try:
-    processor = BlipProcessor.from_pretrained('Salesforce/blip-image-captioning-base')
-    model = BlipForConditionalGeneration.from_pretrained('Salesforce/blip-image-captioning-base').to(device)
+def load_model():
+    """Load model on first use (lazy loading)"""
+    global processor, model, device, model_loaded
     
-    # Apply float16 optimization if on GPU
-    if device == 'cuda':
-        model.half()
-        print("Float16 optimization applied")
+    if model_loaded:
+        return
     
-    model.eval()
-    print("✓ Model loaded successfully!")
+    print("Initializing model (this happens once)...")
+    device = 'cpu'  # Azure App Service doesn't have GPU
+    print(f"Using device: {device}")
     
-except Exception as e:
-    print(f"Error loading model: {e}")
-    raise
+    try:
+        print("Loading processor...")
+        processor = BlipProcessor.from_pretrained('Salesforce/blip-image-captioning-base')
+        
+        print("Loading model...")
+        model = BlipForConditionalGeneration.from_pretrained('Salesforce/blip-image-captioning-base').to(device)
+        
+        model.eval()
+        print("✓ Model loaded successfully!")
+        model_loaded = True
+        
+    except Exception as e:
+        print(f"Error loading model: {e}")
+        raise
 
 @app.route('/')
 def index():
@@ -53,6 +62,10 @@ def health():
 def caption_image():
     """Generate caption for uploaded image"""
     try:
+        # Load model on first request
+        if not model_loaded:
+            load_model()
+        
         # Validate request
         if 'image' not in request.files:
             return jsonify({
@@ -82,10 +95,6 @@ def caption_image():
         
         inputs = processor(images=image, return_tensors="pt").to(device)
         
-        # Apply float16 if on GPU
-        if device == 'cuda' and 'pixel_values' in inputs:
-            inputs['pixel_values'] = inputs['pixel_values'].half()
-        
         with torch.inference_mode():
             out = model.generate(**inputs, max_length=50)
         
@@ -109,6 +118,10 @@ def caption_image():
 def batch_caption():
     """Generate captions for multiple images"""
     try:
+        # Load model on first request
+        if not model_loaded:
+            load_model()
+        
         if 'images' not in request.files:
             return jsonify({
                 'error': 'No images provided',
@@ -123,9 +136,6 @@ def batch_caption():
                 image = Image.open(image_file).convert('RGB')
                 
                 inputs = processor(images=image, return_tensors="pt").to(device)
-                
-                if device == 'cuda' and 'pixel_values' in inputs:
-                    inputs['pixel_values'] = inputs['pixel_values'].half()
                 
                 with torch.inference_mode():
                     out = model.generate(**inputs, max_length=50)
@@ -158,10 +168,10 @@ def batch_caption():
 def info():
     """Get system information"""
     return jsonify({
-        'device': device,
+        'device': device if model_loaded else 'not loaded',
         'cuda_available': torch.cuda.is_available(),
         'model': 'BLIP-base',
-        'optimization': 'float16' if device == 'cuda' else 'standard'
+        'model_loaded': model_loaded
     }), 200
 
 if __name__ == '__main__':
