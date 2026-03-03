@@ -1,116 +1,54 @@
-"""
-Flask Application for Image Captioning
-========================================
-Ready to deploy to Azure
-Optimized with lazy model loading to avoid startup timeout
-"""
-
 from flask import Flask, render_template, request, jsonify
 from transformers import BlipProcessor, BlipForConditionalGeneration
-import torch
 from PIL import Image
-import os
+import torch
+import io
+import base64
 
 app = Flask(__name__)
 
-# Configuration
-MAX_CONTENT_LENGTH = 50 * 1024 * 1024  # 50MB max upload
-
-# Global variables for lazy loading
-processor = None
-model = None
-device = None
-model_loaded = False
-
-def load_model():
-    """Load model on first use (lazy loading)"""
-    global processor, model, device, model_loaded
-    
-    if model_loaded:
-        return
-    
-    print("Initializing model (this happens once)...")
-    device = 'cpu'  # Azure App Service doesn't have GPU
-    print(f"Using device: {device}")
-    
-    try:
-        print("Loading processor...")
-        processor = BlipProcessor.from_pretrained('Salesforce/blip-image-captioning-base')
-        
-        print("Loading model...")
-        model = BlipForConditionalGeneration.from_pretrained('Salesforce/blip-image-captioning-base').to(device)
-        
-        model.eval()
-        print("✓ Model loaded successfully!")
-        model_loaded = True
-        
-    except Exception as e:
-        print(f"Error loading model: {e}")
-        raise
+# Load model and processor
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+processor = BlipProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
+model = BlipForConditionalGeneration.from_pretrained("Salesforce/blip-image-captioning-base").to(device)
+model.eval()
 
 @app.route('/')
 def index():
-    """Serve the main page"""
+    """Render the main page"""
     return render_template('index.html')
 
-@app.route('/health')
-def health():
-    """Health check endpoint for Azure"""
-    return jsonify({'status': 'healthy'}), 200
-
 @app.route('/caption', methods=['POST'])
-def caption_image():
-    """Generate caption for uploaded image"""
+def caption():
+    """Generate caption for a single image"""
     try:
-        # Load model on first request
-        if not model_loaded:
-            load_model()
-        
-        # Validate request
+        # Get image from request
         if 'image' not in request.files:
-            return jsonify({
-                'error': 'No image provided',
-                'success': False
-            }), 400
+            return jsonify({'error': 'No image provided'}), 400
         
-        image_file = request.files['image']
+        file = request.files['image']
         
-        if image_file.filename == '':
-            return jsonify({
-                'error': 'No image selected',
-                'success': False
-            }), 400
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
         
-        # Process image
-        try:
-            image = Image.open(image_file).convert('RGB')
-        except Exception as e:
-            return jsonify({
-                'error': f'Invalid image format: {str(e)}',
-                'success': False
-            }), 400
+        # Read image
+        image = Image.open(io.BytesIO(file.read())).convert('RGB')
         
         # Generate caption
-        print(f"Generating caption for image: {image_file.filename}")
-        
-        inputs = processor(images=image, return_tensors="pt").to(device)
-        
-        with torch.inference_mode():
-            out = model.generate(**inputs, max_length=50)
-        
-        caption = processor.decode(out[0], skip_special_tokens=True)
-        
-        print(f"Caption: {caption}")
+        with torch.no_grad():
+            inputs = processor(images=image, return_tensors="pt").to(device)
+            output = model.generate(**inputs, max_length=50)
+            caption_text = processor.decode(output[0], skip_special_tokens=True)
         
         return jsonify({
-            'caption': caption,
+            'caption': caption_text,
             'success': True
-        }), 200
+        })
     
     except Exception as e:
-        print(f"Error: {str(e)}")
+        print(f"Error in caption endpoint: {str(e)}")
         return jsonify({
-            'error': f'Error processing image: {str(e)}',
+            'error': str(e),
             'success': False
         }), 500
 
@@ -118,62 +56,63 @@ def caption_image():
 def batch_caption():
     """Generate captions for multiple images"""
     try:
-        # Load model on first request
-        if not model_loaded:
-            load_model()
-        
+        # Get images from request
         if 'images' not in request.files:
-            return jsonify({
-                'error': 'No images provided',
-                'success': False
-            }), 400
+            return jsonify({'error': 'No images provided'}), 400
         
-        image_files = request.files.getlist('images')
+        files = request.files.getlist('images')
+        
+        if not files:
+            return jsonify({'error': 'No files selected'}), 400
+        
         captions = []
         
-        for image_file in image_files:
+        # Process each image
+        for file in files:
             try:
-                image = Image.open(image_file).convert('RGB')
+                image = Image.open(io.BytesIO(file.read())).convert('RGB')
                 
-                inputs = processor(images=image, return_tensors="pt").to(device)
-                
-                with torch.inference_mode():
-                    out = model.generate(**inputs, max_length=50)
-                
-                caption = processor.decode(out[0], skip_special_tokens=True)
+                with torch.no_grad():
+                    inputs = processor(images=image, return_tensors="pt").to(device)
+                    output = model.generate(**inputs, max_length=50)
+                    caption_text = processor.decode(output[0], skip_special_tokens=True)
                 
                 captions.append({
-                    'filename': image_file.filename,
-                    'caption': caption
+                    'filename': file.filename,
+                    'caption': caption_text
                 })
-            
             except Exception as e:
                 captions.append({
-                    'filename': image_file.filename,
+                    'filename': file.filename,
                     'error': str(e)
                 })
         
         return jsonify({
             'captions': captions,
             'success': True
-        }), 200
+        })
     
     except Exception as e:
+        print(f"Error in batch-caption endpoint: {str(e)}")
         return jsonify({
             'error': str(e),
             'success': False
         }), 500
 
-@app.route('/info')
+@app.route('/health', methods=['GET'])
+def health():
+    """Health check endpoint"""
+    return jsonify({'status': 'healthy', 'message': 'App is running'}), 200
+
+@app.route('/info', methods=['GET'])
 def info():
-    """Get system information"""
+    """Get app information"""
     return jsonify({
-        'device': device if model_loaded else 'not loaded',
-        'cuda_available': torch.cuda.is_available(),
+        'app': 'Image Captioner',
         'model': 'BLIP-base',
-        'model_loaded': model_loaded
+        'device': str(device),
+        'cuda_available': torch.cuda.is_available()
     }), 200
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 8000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    app.run(host='0.0.0.0', port=8000, debug=False)
